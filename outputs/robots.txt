@@ -1,5 +1,3 @@
-# Замените https://45shagov-domain.example на ваш реальный домен
-
 User-agent: *
 Allow: /
 
@@ -22,4 +20,4 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
-Sitemap: https://45shagov-domain.example/sitemap.xml
+Sitemap: https://https://kristinaperez.netlify.app/sitemap.xml

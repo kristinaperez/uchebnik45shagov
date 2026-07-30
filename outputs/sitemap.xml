@@ -2,7 +2,7 @@
 <!-- Замените https://45shagov-domain.example на ваш реальный домен -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://45shagov-domain.example/</loc>
+    <loc>https://kristinaperez.netlify.app/</loc>
     <lastmod>2026-07-29</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
