@@ -319,6 +319,20 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     margin-top:18px;
   }
 
+  /* ---------- Wet ripple over the hero ---------- */
+  .hero-water{position:absolute; inset:0; width:100%; height:100%; display:block; z-index:0; pointer-events:none;}
+  .hero.has-water{touch-action:pan-y;}
+  .hero .hero-grid{position:relative; z-index:1;}
+  /* When WebGL draws the copy, the DOM text stays for selection, SEO and screen readers but goes transparent */
+  .hero-copy.gl-on .eyebrow,
+  .hero-copy.gl-on h1,
+  .hero-copy.gl-on h1 em,
+  .hero-copy.gl-on .hero-sub,
+  .hero-copy.gl-on .hero-author{color:transparent;}
+  .hero-copy.gl-on .eyebrow{background:transparent; border-color:transparent;}
+  .hero-copy.gl-on .eyebrow::before{background:transparent;}
+  .hero-copy.gl-on ::selection{color:var(--paper); background:var(--red);}
+
   .cover-stage{
     position:relative;
     display:flex;
@@ -754,20 +768,21 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 </div>
 
 <!-- HERO -->
-<section class="hero">
+<section class="hero" id="hero">
+  <canvas class="hero-water" id="heroWater" aria-hidden="true"></canvas>
   <div class="wrap hero-grid">
-    <div>
+    <div class="hero-copy" id="heroCopy">
       <span class="eyebrow">Учебник · Кристина Перез</span>
       <h1>45 шагов<br>к <em>испанскому</em></h1>
       <p class="hero-sub">Натуральный испанский из реальных разговоров: то, что нужно для бытового общения, собранное в одном месте — без домашних заданий и без грамматики во главе угла.</p>
       <p class="hero-author">Кристина Перез</p>
-      <div class="hero-cta">
+      <div class="hero-cta" data-live>
         <a class="btn btn-primary" href="https://app.lava.top/products/9d5736ad-5ab6-464e-a96f-1d05c17ec945/edit?currentStep=sale" target="_blank" rel="noopener">
           Заказать учебник
         </a>
         <a class="btn btn-outline" href="#author">От автора</a>
       </div>
-      <div class="hero-social">
+      <div class="hero-social" data-live>
         <a class="btn btn-ghost btn-sm" href="https://t.me/KristinaPerez9" target="_blank" rel="noopener">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>
           Telegram-канал
@@ -1068,5 +1083,261 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 })();
 </script>
 
+<!-- Wet ripple over the hero: one WebGL 2 fragment shader, no libraries.
+     Text of the first screen is redrawn into a texture; real DOM text stays on top, transparent.
+     Buttons and the cover stay live HTML above the water. Without WebGL 2 the hero shows as usual. -->
+<script>
+(function () {
+  'use strict';
+  var stage = document.getElementById('heroWater') && document.getElementById('hero');
+  if (!stage) return;
+  var copy = document.getElementById('heroCopy');
+  var canvas = document.getElementById('heroWater');
+  var REDUCE = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var AUTO = !REDUCE;
+
+  var gl = null;
+  try { gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false }); } catch (e) {}
+  if (!gl) { canvas.remove(); return; }
+
+  var VS = '#version 300 es\nout vec2 v;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);v=p;gl_Position=vec4(p*2.0-1.0,0.0,1.0);}';
+  var FS = [
+    '#version 300 es',
+    'precision highp float;',
+    'in vec2 v; out vec4 o;',
+    'uniform sampler2D tex; uniform vec2 res; uniform float time;',
+    'uniform vec4 drops[16];',
+    'const float amp=1.0, freq=60.0, speed=0.35, shine=0.9, ca=1.0;',
+    'vec2 asp;',
+    'float height(vec2 p){',
+    '  float h=0.0;',
+    '  for(int i=0;i<16;i++){',
+    '    vec4 d=drops[i]; float age=time-d.z;',
+    '    if(d.w<=0.0||age<0.0||age>4.0) continue;',
+    '    float dist=length((p-d.xy)*asp);',
+    '    float x=dist-age*speed;',
+    '    h+=d.w*sin(x*freq)*exp(-x*x*140.0)*exp(-age*1.1)/(1.0+dist*3.0);',
+    '  }',
+    '  return h;',
+    '}',
+    'void main(){',
+    '  asp=vec2(res.x/res.y,1.0);',
+    '  vec2 uv=v;',
+    '  float e=1.5/res.y;',
+    '  vec2 g=vec2(height(uv+vec2(e/asp.x,0.0))-height(uv-vec2(e/asp.x,0.0)),',
+    '              height(uv+vec2(0.0,e))-height(uv-vec2(0.0,e)))/(2.0*e);',
+    '  vec2 off=-g*0.00028*amp;',
+    '  float c=min(length(g)*0.000045*ca,0.012);',
+    '  vec2 cd=length(g)>1e-4?normalize(g):vec2(1.0,0.0);',
+    '  vec4 base=texture(tex,uv+off);',
+    '  float r=texture(tex,uv+off+cd*c).r;',
+    '  float b=texture(tex,uv+off-cd*c).b;',
+    '  vec3 col=vec3(r,base.g,b);',
+    '  vec3 n=normalize(vec3(-g*0.012,1.0));',
+    '  vec3 L=normalize(vec3(-0.45,0.55,0.75));',
+    '  vec3 H=normalize(L+vec3(0.0,0.0,1.0));',
+    '  float spec=max(0.0,pow(max(dot(n,H),0.0),70.0)-pow(H.z,70.0));',
+    '  float shade=dot(n,L)-L.z;',
+    '  col+=vec3(1.0,0.99,0.96)*min(spec*1.6,0.55)*shine;',
+    '  col+=shade*0.22*shine;',
+    '  o=vec4(clamp(col,0.0,1.0),1.0);',
+    '}'
+  ].join('\n');
+
+  function compile(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  var prog;
+  try {
+    prog = gl.createProgram();
+    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  } catch (e) {
+    console.warn('Ripple shader failed, effect off', e);
+    canvas.remove(); return;
+  }
+  gl.useProgram(prog);
+  var U = {};
+  ['tex', 'res', 'time', 'drops'].forEach(function (n) { U[n] = gl.getUniformLocation(prog, n); });
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(U.tex, 0);
+
+  /* ---------- snapshot of the hero into a 2D canvas ---------- */
+  var off = document.createElement('canvas');
+  var ctx = off.getContext('2d');
+  var W = 1, H = 1, DPR = 1;
+  var css = getComputedStyle(document.documentElement);
+  function v(name, fb) { return css.getPropertyValue(name).trim() || fb; }
+  var CREAM = v('--cream', '#FAF2E4'), GOLD = v('--gold', '#C1922F');
+
+  // Same look as the .hero CSS background: cream + two soft radial glows
+  function glow(px, py, rgba) {
+    var cx = W * px, cy = H * py;
+    var R = Math.max(Math.hypot(cx, cy), Math.hypot(W - cx, cy), Math.hypot(cx, H - cy), Math.hypot(W - cx, H - cy));
+    var g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    g.addColorStop(0, rgba); g.addColorStop(0.55, rgba.replace(/[\d.]+\)$/, '0)'));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  function drawGround() {
+    ctx.fillStyle = CREAM; ctx.fillRect(0, 0, W, H);
+    glow(-0.1, 0.6, 'rgba(179,34,42,0.12)');
+    glow(0.85, -0.1, 'rgba(224,97,28,0.18)');
+    // faint dot grid: ripples read best on regular marks
+    ctx.fillStyle = GOLD; ctx.globalAlpha = 0.16;
+    var step = W < 600 ? 22 : 28;
+    for (var y = step / 2; y < H; y += step) {
+      for (var x = step / 2; x < W; x += step) { ctx.beginPath(); ctx.arc(x, y, 1.1, 0, 6.2832); ctx.fill(); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  // the pill behind "Учебник · Кристина Перез"
+  function drawPill(el, sr) {
+    var cs = getComputedStyle(el), rc = el.getBoundingClientRect();
+    var x = rc.left - sr.left, y = rc.top - sr.top;
+    roundRect(x + 0.5, y + 0.5, rc.width - 1, rc.height - 1, rc.height / 2);
+    ctx.fillStyle = cs.backgroundColor; ctx.fill();
+    ctx.lineWidth = parseFloat(cs.borderTopWidth) || 1; ctx.strokeStyle = cs.borderTopColor; ctx.stroke();
+    var dot = getComputedStyle(el, '::before');
+    ctx.fillStyle = dot.backgroundColor;
+    ctx.beginPath(); ctx.arc(x + (parseFloat(cs.paddingLeft) || 14) + 3, y + rc.height / 2, 3, 0, 6.2832); ctx.fill();
+  }
+
+  var range = document.createRange();
+  function drawText(node, sr) {
+    var el = node.parentElement;
+    var cs = getComputedStyle(el);
+    ctx.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    ctx.fillStyle = cs.color;
+    ctx.textBaseline = 'alphabetic';
+    var m = ctx.measureText('ШAg');
+    var asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent;
+    var upper = cs.textTransform === 'uppercase';
+    var t = node.textContent;
+    for (var i = 0; i < t.length; i++) {
+      var ch = t[i];
+      if (/\s/.test(ch)) continue;
+      range.setStart(node, i); range.setEnd(node, i + 1);
+      var rects = range.getClientRects();
+      if (!rects.length) continue;
+      var rc = rects[0];
+      var x = rc.left - sr.left, y = rc.top - sr.top;
+      // centre the font box inside the line box, as the browser does
+      var base = (isFinite(asc) && isFinite(desc)) ? y + (rc.height - (asc + desc)) / 2 + asc : y + rc.height * 0.8;
+      ctx.fillText(upper ? ch.toUpperCase() : ch, x, base);
+    }
+  }
+
+  function snapshot() {
+    var sr = stage.getBoundingClientRect();
+    W = Math.max(1, sr.width); H = Math.max(1, sr.height);
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    var pw = Math.round(W * DPR), ph = Math.round(H * DPR);
+    off.width = pw; off.height = ph;
+    canvas.width = pw; canvas.height = ph;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawGround();
+    copy.classList.remove('gl-on');          // read the real colours
+    var pill = copy.querySelector('.eyebrow');
+    if (pill) drawPill(pill, sr);
+    var tw = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+    var n;
+    while ((n = tw.nextNode())) {
+      if (!n.textContent.trim()) continue;
+      if (n.parentElement.closest('[data-live]')) continue;
+      drawText(n, sr);
+    }
+    copy.classList.add('gl-on');
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, off);
+    gl.viewport(0, 0, pw, ph);
+    gl.uniform2f(U.res, pw, ph);
+    wake();
+  }
+
+  /* ---------- drops ---------- */
+  var drops = new Float32Array(64);
+  var head = 0;
+  var t0 = performance.now();
+  function now() { return (performance.now() - t0) / 1000; }
+  function addDrop(x, y, s) {
+    drops[head * 4] = x; drops[head * 4 + 1] = y; drops[head * 4 + 2] = now(); drops[head * 4 + 3] = s;
+    head = (head + 1) % 16;
+    wake();
+  }
+  var last = null, lastUser = -1e9;
+  function toUV(e) {
+    var r = stage.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: 1 - (e.clientY - r.top) / r.height, px: e.clientX, py: e.clientY };
+  }
+  stage.addEventListener('pointermove', function (e) {
+    if (REDUCE) return;
+    var p = toUV(e);
+    if (!last || Math.hypot(p.px - last.px, p.py - last.py) > 38) { addDrop(p.x, p.y, 0.55); last = p; }
+    lastUser = performance.now();
+  }, { passive: true });
+  stage.addEventListener('pointerdown', function (e) {
+    var p = toUV(e);
+    addDrop(p.x, p.y, 1.6);
+    last = p; lastUser = performance.now();
+  }, { passive: true });
+  stage.addEventListener('pointerleave', function () { last = null; });
+
+  /* ---------- loop: draws only while something moves and the hero is on screen ---------- */
+  var running = false, visible = true, onScreen = true, nextAuto = 0.6;
+  function busy() {
+    if (AUTO && visible) return true;
+    var t = now();
+    for (var i = 0; i < 16; i++) if (drops[i * 4 + 3] > 0 && t - drops[i * 4 + 2] < 4) return true;
+    return false;
+  }
+  function frame() {
+    var t = now();
+    if (AUTO && t > nextAuto && performance.now() - lastUser > 2500) {
+      addDrop(0.08 + Math.random() * 0.84, 0.12 + Math.random() * 0.76, 0.6 + Math.random() * 0.5);
+      nextAuto = t + 1.8 + Math.random() * 2.2;
+    }
+    gl.uniform1f(U.time, t);
+    gl.uniform4fv(U.drops, drops);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (visible && busy()) requestAnimationFrame(frame); else running = false;
+  }
+  function wake() { if (!running && visible) { running = true; requestAnimationFrame(frame); } }
+  function vis() { visible = onScreen && !document.hidden; wake(); }
+  new IntersectionObserver(function (es) { onScreen = es[0].isIntersecting; vis(); }).observe(stage);
+  document.addEventListener('visibilitychange', vis);
+
+  /* ---------- start after fonts, redo on resize ---------- */
+  var queued = false;
+  function resnap() { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; snapshot(); }); }
+  var sample = '45 шагов к испанскому Учебник Кристина Перез abc';
+  var loads = ['900 62px Fraunces', 'italic 400 17px Fraunces', '400 19px "Source Sans 3"', '400 13px "IBM Plex Mono"']
+    .map(function (f) { return document.fonts && document.fonts.load ? document.fonts.load(f, sample).catch(function () {}) : null; });
+  var started = false;
+  function start() { if (started) return; started = true; snapshot(); new ResizeObserver(resnap).observe(stage); }
+  Promise.all(loads).then(function () { return document.fonts ? document.fonts.ready : null; }).then(start, start);
+  setTimeout(start, 2500);
+  if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', function () { if (started) resnap(); });
+  window.addEventListener('pageshow', function () { if (started) resnap(); });
+  stage.classList.add('has-water');
+  if (!REDUCE) setTimeout(function () { addDrop(0.3, 0.55, 1.4); }, 500);
+})();
+</script>
 </body>
 </html>
